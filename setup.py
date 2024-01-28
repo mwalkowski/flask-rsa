@@ -14,8 +14,6 @@ The extension allows developers to easily integrate RSA signature validation int
 from setuptools import setup
 
 
-# Generate a Long Decription for the PyPi page which is the README.rst
-# Plus the CHANGELOG.rst
 long_description = open('./README.md').read()
 changelog = open('./CHANGELOG.md').read()
 long_description += '\n' + changelog
