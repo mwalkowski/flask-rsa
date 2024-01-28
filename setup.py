@@ -15,7 +15,7 @@ from setuptools import setup
 
 
 long_description = open('./README.md').read()
-changelog = open('./CHANGELOG.md').read()
+changelog = open('./CHANGELOG.rst').read()
 long_description += '\n' + changelog
 
 # Get Version
