@@ -1,5 +1,6 @@
-from unittest.mock import MagicMock
+import pytest
 
+from unittest.mock import MagicMock
 from flask_rsa import RSA
 
 
@@ -14,7 +15,8 @@ class FlaskAppStub:
         pass
 
 
-def test_default_signature_header():
+@pytest.mark.parametrize("header", ["X-Signature", "X-Nonce-Value", "X-Nonce-Created-At"])
+def test_default_header(header):
     stub = FlaskAppStub()
     request_mock = MagicMock()
     request_mock.headers.get.return_value = 'A'
@@ -24,12 +26,22 @@ def test_default_signature_header():
 
     uut.is_signature_correct(request_mock)
 
-    assert request_mock.headers.__get__.assert_called_once_with('X-Signature')
+    request_mock.headers.__getitem__.assert_any_call(header)
 
 
-def test_signature_header_config():
+@pytest.mark.parametrize("config,header", [
+    ("RSA_SIGNATURE_HEADER", "X-Signature-1"),
+    ("RSA_NONCE_HEADER", "X-Nonce-Value-1"),
+    ("RSA_NONCE_CREATED_AT_HEADER", "X-Nonce-Created-A-1")])
+def test_header_config(config, header):
     stub = FlaskAppStub()
-    stub.config['RSA_SIGNATURE_HEADER'] = 'X-Signature-2'
+    request_mock = MagicMock()
+    request_mock.headers.get.return_value = 'A'
+    stub.config[config] = header
 
-    #uut = RSA(stub)
+    uut = RSA(stub)
+    uut.verify = MagicMock(uut.verify)
 
+    uut.is_signature_correct(request_mock)
+
+    request_mock.headers.__getitem__.assert_any_call(header)
