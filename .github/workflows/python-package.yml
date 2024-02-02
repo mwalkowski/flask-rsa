@@ -20,7 +20,7 @@ jobs:
       uses: actions/setup-python@v3
       with:
         python-version: ${{ matrix.python-version }}
-    - name: Install dependencies
-      run: pip install tox
-    - name: Test with tox
-      run: tox run -e py${{ matrix.python }}
+    - run: pip install tox bandit
+    - run: bandit -r flask_rsa
+    - run: tox run -e py${{ matrix.python }}
+

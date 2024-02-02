@@ -4,6 +4,8 @@ import queue
 import re
 import uuid
 
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from requests import status_codes
 from datetime import datetime, timezone
 from functools import wraps
@@ -12,10 +14,8 @@ from flask import jsonify, logging
 from flask import request
 from flask import make_response as flask_make_response
 
-from Crypto.Signature import pkcs1_15 as pkcs_signature
-from Crypto.Hash import SHA256
-from Crypto.PublicKey import RSA as CryptoRSA
 
+from cryptography.hazmat.primitives import serialization, hashes
 
 _PRIVATE_KEY_PATH = 'private.key'
 _PUBLIC_KEY_PATH = 'public.pem'
@@ -58,28 +58,41 @@ class RSA(object):
             private_key_path = os.path.join(os.getcwd(), _PRIVATE_KEY_PATH)
 
             try:
-                self._server_public_key = self._read_key(public_key_path)
-                self._server_private_key = self._read_key(private_key_path)
+                self._server_public_key = self._read_public_key(public_key_path)
+                self._server_private_key = self._read_private_key(private_key_path)
                 self._logger.warning('Using last generated keys')
             except FileNotFoundError:
                 self._logger.warning('Default keys not found, generating new one')
 
-                key = CryptoRSA.generate(2048)
-                self._server_private_key  = key.export_key()
+                private_key = rsa.generate_private_key(
+                    public_exponent=65537,
+                    key_size=2048,
+                )
+                self._server_private_key = private_key
+                pem = private_key.private_bytes(
+                    encoding=serialization.Encoding.PEM,
+                    format=serialization.PrivateFormat.TraditionalOpenSSL,
+                    encryption_algorithm=serialization.NoEncryption()
+                )
                 with open(private_key_path, "wb") as f:
-                    f.write(self._server_private_key)
+                    f.write(pem)
                 self._logger.warning(F'Private key saved in {private_key_path}')
 
-                self._server_public_key = key.publickey().export_key()
+                self._server_public_key = private_key.publickey()
+                pem = self._server_public_key.public_bytes(
+                    encoding=serialization.Encoding.PEM,
+                    format=serialization.PublicFormat.SubjectPublicKeyInfo
+                )
                 with open(public_key_path, "wb") as f:
-                    f.write(self._server_public_key )
+                    f.write(pem)
                 self._logger.warning(F'Public key saved in {public_key_path}')
 
         else:
             try:
-                self._server_public_key = self._read_key(public_key_path)
-                self._server_private_key = self._read_key(private_key_path)
+                self._server_public_key = self._read_public_key(public_key_path)
+                self._server_private_key = self._read_private_key(private_key_path)
             except FileNotFoundError as e:
+                #TODO: fixme - remove exit(1)
                 self._logger.error(e)
                 exit(1)
 
@@ -108,34 +121,47 @@ class RSA(object):
         return _signature_required
 
     def get_server_public_key(self):
-        return jsonify({"public_key": self._server_public_key.public_key().export_key().decode()})
+        return jsonify({"public_key": self._server_public_key.public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo
+        ).decode()})
 
     def get_user_public_key(self, request):
         return self._server_public_key
 
     def verify(self, request, signature_input_b64, received_signature):
-        hash = SHA256.new(signature_input_b64)
         try:
-            pkcs_signature.new(self.get_user_public_key(request)).verify(hash, base64.standard_b64decode(received_signature))
-        except (ValueError, TypeError) as e:
+            print('aaa')
+            self.get_user_public_key(request).verify(
+                base64.standard_b64decode(received_signature),
+                signature_input_b64,
+                padding.PSS(
+                    mgf=padding.MGF1(hashes.SHA256()),
+                    salt_length=padding.PSS.MAX_LENGTH
+                ),
+                hashes.SHA256()
+            )
+        except InvalidSignature as e:
             return False
         return True
 
     def is_signature_correct(self, request):
         nonce_value = request.headers[self._nonce_header]
         nonce_created_at = request.headers[self._nonce_created_at_header]
+        signature_input_b64 = self._create_signature_input(nonce_created_at, nonce_value, request)
+        return self.verify(request, signature_input_b64, request.headers[self._signature_header])
+
+    @staticmethod
+    def _create_signature_input(nonce_created_at, nonce_value, request):
         signature_input = "{}{}{}{}{}".format(request.method, request.path,
                                               nonce_value, nonce_created_at, request.data.decode())
         signature_input_b64 = base64.standard_b64encode(signature_input.encode())
-        return self.verify(request, signature_input_b64, request.headers[self._signature_header])
+        return signature_input_b64
 
     def add_signature(self, response, request):
         nonce = uuid.uuid4()
         nonce_created_at = datetime.now(timezone.utc).isoformat()
-        signature_input = "{}{}{}{}{}".format(request.method, request.path,
-                                              nonce, nonce_created_at, response.data.decode())
-
-        signature_input_b64 = base64.standard_b64encode(signature_input.encode())
+        signature_input_b64 = self._create_signature_input(nonce_created_at, nonce, request)
         response.headers[self._signature_header] = self.generate_signature(signature_input_b64)
         response.headers[self._nonce_header] = nonce
         response.headers[self._nonce_created_at_header] = nonce_created_at
@@ -143,9 +169,14 @@ class RSA(object):
         return response
 
     def generate_signature(self, signature_input_b64):
-        hash = SHA256.new(signature_input_b64)
-        signature = pkcs_signature.new(self._server_private_key).sign(hash)
-        return base64.standard_b64encode(signature).decode()
+        return base64.standard_b64encode(self._server_private_key.sign(
+            signature_input_b64,
+            padding.PSS(
+                mgf=padding.MGF1(hashes.SHA256()),
+                salt_length=padding.PSS.MAX_LENGTH
+            ),
+            hashes.SHA256())
+        ).decode('utf-8')
 
     def _check_headers_exists(self, request):
         for header in self._requred_headers:
@@ -177,5 +208,14 @@ class RSA(object):
         return flask_make_response(jsonify({"error": msg}), self._error_code )
 
     @staticmethod
-    def _read_key(filename):
-        return CryptoRSA.import_key(open(filename).read())
+    def _read_private_key(filename):
+        with open(filename, "rb") as key_file:
+            return serialization.load_pem_private_key(
+                key_file.read(),
+                password=None,
+            )
+
+    @staticmethod
+    def _read_public_key(filename):
+        with open(filename, "rb") as key_file:
+            return serialization.load_pem_public_key(key_file.read())

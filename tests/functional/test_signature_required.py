@@ -6,9 +6,8 @@ import uuid
 import pytest
 
 from datetime import datetime, timezone, timedelta
-from Crypto.Hash import SHA256
-from Crypto.Signature import pkcs1_15
-from Crypto.PublicKey import RSA as CryptoRSA
+from cryptography.hazmat.primitives import serialization, hashes
+from cryptography.hazmat.primitives.asymmetric import padding
 
 from flask_rsa import RSA
 from flask import Flask, jsonify
@@ -25,12 +24,25 @@ PRIVATE_KEY = os.path.join(os.getcwd(), 'tests', 'data', 'private.key')
 PUBLIC_KEY = os.path.join(os.getcwd(), 'tests', 'data', 'public.pem')
 
 
+def read_private_key(filename):
+    with open(filename, "rb") as key_file:
+        return serialization.load_pem_private_key(
+            key_file.read(),
+            password=None,
+        )
+
+
 def create_signature(method, nonce, nonce_created_at, request_data):
     signature_input = "{}{}{}{}{}".format(method, '/signed-body', nonce, nonce_created_at, request_data)
     signature_input_b64 = base64.standard_b64encode(signature_input.encode())
-    h = SHA256.new(signature_input_b64)
-    key = CryptoRSA.import_key(open(PRIVATE_KEY).read())
-    return base64.standard_b64encode(pkcs1_15.new(key).sign(h)).decode('utf-8')
+    signature = read_private_key(PRIVATE_KEY).sign(
+        signature_input_b64,
+        padding.PSS(
+            mgf=padding.MGF1(hashes.SHA256()),
+            salt_length=padding.PSS.MAX_LENGTH
+        ),
+        hashes.SHA256())
+    return base64.standard_b64encode(signature).decode('utf-8')
 
 
 @pytest.fixture()
@@ -156,7 +168,7 @@ def test_signature_invalid(client):
 
 
 @pytest.mark.parametrize("method", ["GET", "DELETE", "POST", "PATCH", "PUT"])
-def test_signature_ok_post(method, client):
+def test_signature_ok(method, client):
     nonce = uuid.uuid4()
     nonce_created_at = datetime.now(timezone.utc).isoformat()
     request_data = ''

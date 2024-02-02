@@ -1,3 +1,5 @@
+[![security: bandit](https://img.shields.io/badge/security-bandit-yellow.svg)](https://github.com/PyCQA/bandit)
+
 # Flask RSA Signature Validation
 This Flask extension provides server-side implementation of RSA-based request signature validation. It enhances the security of web applications by ensuring the integrity and authenticity of incoming requests. The extension allows developers to easily integrate RSA signature validation into their Flask applications.
 
