@@ -92,9 +92,8 @@ class RSA(object):
                 self._server_public_key = self._read_public_key(public_key_path)
                 self._server_private_key = self._read_private_key(private_key_path)
             except FileNotFoundError as e:
-                #TODO: fixme - remove exit(1)
                 self._logger.error(e)
-                exit(1)
+                raise e
 
     def signature_required(self):
 
