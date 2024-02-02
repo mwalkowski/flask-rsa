@@ -52,6 +52,9 @@ class RSA(object):
         private_key_path = app.config.get('RSA_PRIVATE_KEY_PATH', None)
         public_key_path = app.config.get('RSA_PUBLIC_KEY_PATH', None)
 
+        self._prepare_server_rsa_keys(private_key_path, public_key_path)
+
+    def _prepare_server_rsa_keys(self, private_key_path, public_key_path):
         if not private_key_path and not public_key_path:
             self._logger.warning('RSA_PRIVATE_KEY_PATH and RSA_PUBLIC_KEY_PATH not set')
             public_key_path = os.path.join(os.getcwd(), _PUBLIC_KEY_PATH)
@@ -78,7 +81,7 @@ class RSA(object):
                     f.write(pem)
                 self._logger.warning(F'Private key saved in {private_key_path}')
 
-                self._server_public_key = private_key.publickey()
+                self._server_public_key = private_key.public_key()
                 pem = self._server_public_key.public_bytes(
                     encoding=serialization.Encoding.PEM,
                     format=serialization.PublicFormat.SubjectPublicKeyInfo
@@ -130,7 +133,6 @@ class RSA(object):
 
     def verify(self, request, signature_input_b64, received_signature):
         try:
-            print('aaa')
             self.get_user_public_key(request).verify(
                 base64.standard_b64decode(received_signature),
                 signature_input_b64,
