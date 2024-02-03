@@ -68,7 +68,7 @@ def send_signed_request(private_key, token):
     headers = {'x-access-token': token}
 
     request_body = json.dumps({'TEST': 'Test'})
-    headers = add_signature(headers, 'POST','/signed-body',
+    headers = add_signature(headers, 'POST', '/signed-body',
                             request_body, private_key)
 
     return requests.post(
@@ -110,7 +110,20 @@ def is_signature_correct(response, path, method, server_public_key):
     nonce_created_at = response.headers[NONCE_CREATED_AT_HEADER]
     signature_input_b64 = create_signature_input(
         nonce_created_at, nonce_value, method, path, response.text)
-    return verify(server_public_key, signature_input_b64, response.headers[SIGNATURE_HEADER])
+
+    try:
+        server_public_key.verify(
+            response.headers[SIGNATURE_HEADER],
+            signature_input_b64,
+            padding.PSS(
+                mgf=padding.MGF1(hashes.SHA256()),
+                salt_length=padding.PSS.MAX_LENGTH
+            ),
+            hashes.SHA256()
+        )
+    except InvalidSignature:
+        return False
+    return True
 
 
 if __name__ == "__main__":
@@ -139,5 +152,3 @@ if __name__ == "__main__":
     print(F'Response body: {response.json()}')
     is_correct = is_signature_correct(response, "POST", "/signed-body", server_public_key)
     print(F'Is server signature correct?: {is_correct}')
-
-
