@@ -62,47 +62,61 @@ class RSA:
 
     def _prepare_server_rsa_keys(self, private_key_path, public_key_path):
         if not private_key_path and not public_key_path:
-            self._logger.warning('RSA_PRIVATE_KEY_PATH and RSA_PUBLIC_KEY_PATH not set')
-            public_key_path = os.path.join(os.getcwd(), _PUBLIC_KEY_PATH)
-            private_key_path = os.path.join(os.getcwd(), _PRIVATE_KEY_PATH)
-
-            try:
-                self._server_public_key = self._read_public_key(public_key_path)
-                self._server_private_key = self._read_private_key(private_key_path)
-                self._logger.warning('Using last generated keys')
-            except FileNotFoundError:
-                self._logger.warning('Default keys not found, generating new one')
-
-                private_key = rsa.generate_private_key(
-                    public_exponent=65537,
-                    key_size=2048,
-                )
-                self._server_private_key = private_key
-                pem = private_key.private_bytes(
-                    encoding=serialization.Encoding.PEM,
-                    format=serialization.PrivateFormat.TraditionalOpenSSL,
-                    encryption_algorithm=serialization.NoEncryption()
-                )
-                with open(private_key_path, "wb") as f:
-                    f.write(pem)
-                self._logger.warning(F'Private key saved in {private_key_path}')
-
-                self._server_public_key = private_key.public_key()
-                pem = self._server_public_key.public_bytes(
-                    encoding=serialization.Encoding.PEM,
-                    format=serialization.PublicFormat.SubjectPublicKeyInfo
-                )
-                with open(public_key_path, "wb") as f:
-                    f.write(pem)
-                self._logger.warning(F'Public key saved in {public_key_path}')
-
+            self._load_or_generate_default_keys()
         else:
             try:
                 self._server_public_key = self._read_public_key(public_key_path)
                 self._server_private_key = self._read_private_key(private_key_path)
-            except FileNotFoundError as e:
+            except Exception as e:
                 self._logger.error(e)
                 raise e
+
+    def _load_or_generate_default_keys(self):
+        self._logger.warning('RSA_PRIVATE_KEY_PATH and RSA_PUBLIC_KEY_PATH not set')
+        public_key_path = os.path.join(os.getcwd(), _PUBLIC_KEY_PATH)
+        private_key_path = os.path.join(os.getcwd(), _PRIVATE_KEY_PATH)
+        try:
+            self._server_public_key = self._read_public_key(public_key_path)
+            self._server_private_key = self._read_private_key(private_key_path)
+            self._logger.warning('Using last generated keys')
+        except FileNotFoundError:
+            self._logger.warning('Default keys not found, generating new one')
+
+            self._server_private_key = self._generate_private_key()
+            self._save_private_key(private_key_path)
+            self._logger.warning(F'Private key saved in {private_key_path}')
+
+            self._server_public_key = self._server_private_key.public_key()
+            self._save_public_key(public_key_path)
+            self._logger.warning(F'Public key saved in {public_key_path}')
+
+    def _save_public_key(self, public_key_path):
+        pem = self._server_public_key.public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo
+        )
+        self._save_key(pem, public_key_path)
+
+    def _save_private_key(self, private_key_path):
+        pem = self._server_private_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.TraditionalOpenSSL,
+            encryption_algorithm=serialization.NoEncryption()
+        )
+        self._save_key(pem, private_key_path)
+
+    @staticmethod
+    def _save_key(pem, private_key_path):
+        with open(private_key_path, "wb") as f:
+            f.write(pem)
+
+    @staticmethod
+    def _generate_private_key():
+        private_key = rsa.generate_private_key(
+            public_exponent=65537,
+            key_size=2048,
+        )
+        return private_key
 
     def signature_required(self):
 
@@ -148,7 +162,7 @@ class RSA:
                 ),
                 hashes.SHA256()
             )
-        except InvalidSignature as e:
+        except InvalidSignature:
             return False
         return True
 

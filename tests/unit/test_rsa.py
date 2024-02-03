@@ -1,13 +1,25 @@
+import os
 import uuid
+import pytest
+
 from datetime import datetime, timezone, timedelta
 
-import pytest
 
 from unittest.mock import MagicMock, patch
 from flask_rsa import RSA
 
 
+TEST_PRIVATE_KEY_PATH = os.path.join(os.getcwd(), 'private.key')
+TEST_PUBLIC_KEY_PATH = os.path.join(os.getcwd(), 'public.pem')
+
+TEST_PRIVATE_KEY_PATH_CONF = os.path.join(os.getcwd(), 'tests', 'data', 'private.key')
+TEST_PUBLIC_KEY_PATH_CONF = os.path.join(os.getcwd(), 'tests', 'data', 'public.pem')
+
+
 class TestRSA(RSA):
+
+    def __init__(self, app):
+        super().__init__(app)
 
     def is_nonce_correct(self, request):
         return self._is_nonce_correct(request)
@@ -21,6 +33,9 @@ class TestRSA(RSA):
     def make_response(self, msg):
         return self._make_response(msg)
 
+    def read_public_key(self, filename):
+        return self._read_public_key(filename)
+
 
 @pytest.fixture()
 def flask_mock():
@@ -29,6 +44,9 @@ def flask_mock():
     flask_mock.debug = True
     flask_mock.config = {}
     yield flask_mock
+
+    os.remove(TEST_PRIVATE_KEY_PATH) if os.path.exists(TEST_PRIVATE_KEY_PATH) else None
+    os.remove(TEST_PUBLIC_KEY_PATH) if os.path.exists(TEST_PUBLIC_KEY_PATH) else None
 
 
 @pytest.mark.parametrize("header", ["X-Signature", "X-Nonce-Value", "X-Nonce-Created-At"])
@@ -163,3 +181,57 @@ def test_config_error_code(flask_make_response, jsonify, flask_mock):
     jsonify.assert_called_once_with({"error": "test"})
 
     flask_make_response.assert_called_once_with("json msg", 500)
+
+
+def test_generate_rsa_keys(flask_mock):
+    assert not os.path.isfile(TEST_PRIVATE_KEY_PATH)
+    assert not os.path.isfile(TEST_PUBLIC_KEY_PATH)
+
+    uut = TestRSA(flask_mock)
+    public_key = uut.read_public_key(TEST_PUBLIC_KEY_PATH)
+
+    assert os.path.isfile(TEST_PUBLIC_KEY_PATH)
+    assert os.path.isfile(TEST_PRIVATE_KEY_PATH)
+
+    uut = TestRSA(flask_mock)
+
+    assert os.path.isfile(TEST_PUBLIC_KEY_PATH)
+    assert os.path.isfile(TEST_PRIVATE_KEY_PATH)
+    assert uut.read_public_key(TEST_PUBLIC_KEY_PATH) == public_key
+
+
+def test_config_rsa_keys_nok(flask_mock):
+    flask_mock.config['RSA_PRIVATE_KEY_PATH'] = 'bla'
+    flask_mock.config['RSA_PUBLIC_KEY_PATH'] = TEST_PUBLIC_KEY_PATH_CONF
+
+    with pytest.raises(FileNotFoundError):
+        TestRSA(flask_mock)
+
+    flask_mock.config['RSA_PRIVATE_KEY_PATH'] = TEST_PRIVATE_KEY_PATH_CONF
+    flask_mock.config['RSA_PUBLIC_KEY_PATH'] = 'bla'
+
+    with pytest.raises(FileNotFoundError):
+        TestRSA(flask_mock)
+
+    flask_mock.config['RSA_PUBLIC_KEY_PATH'] = None
+
+    with pytest.raises(TypeError):
+        TestRSA(flask_mock)
+
+    flask_mock.config['RSA_PRIVATE_KEY_PATH'] = None
+    flask_mock.config['RSA_PUBLIC_KEY_PATH'] = TEST_PUBLIC_KEY_PATH_CONF
+
+
+
+    with pytest.raises(TypeError):
+        TestRSA(flask_mock)
+
+
+def test_config_rsa_keys(flask_mock):
+    flask_mock.config['RSA_PRIVATE_KEY_PATH'] = TEST_PRIVATE_KEY_PATH_CONF
+    flask_mock.config['RSA_PUBLIC_KEY_PATH'] = TEST_PUBLIC_KEY_PATH_CONF
+
+    uut = TestRSA(flask_mock)
+
+    assert not os.path.isfile(TEST_PRIVATE_KEY_PATH)
+    assert not os.path.isfile(TEST_PUBLIC_KEY_PATH)
