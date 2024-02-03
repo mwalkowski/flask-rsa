@@ -21,6 +21,7 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
     - run: pip install tox bandit
+    - run: pylint flask_rsa
     - run: bandit -r flask_rsa
     - run: tox run -e py${{ matrix.python }}
 
