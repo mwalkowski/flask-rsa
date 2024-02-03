@@ -56,7 +56,7 @@ app.config['RSA_NONCE_HEADER'] = 'X-Nonce-Value'
 * `RSA_ERROR_CODE`: HTTP status code to return in case of validation failure (default: 403).
 
 ## Example
-For a practical example of how to use this extension, refer to the provided [example code](./examples/requests_signing.py).
+For a practical example of how to use this extension, refer to the provided [example code](./examples).
 
 ## License
 This extension is released under the MIT License. See the [LICENSE](./LICENSE) file for more details.

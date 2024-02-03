@@ -172,20 +172,22 @@ class RSA:  # pylint: disable=too-many-instance-attributes
     def _is_signature_correct(self, request) -> bool:
         nonce_value = request.headers[self._nonce_header]
         nonce_created_at = request.headers[self._nonce_created_at_header]
-        signature_input_b64 = self._create_signature_input(nonce_created_at, nonce_value, request)
+        signature_input_b64 = self._create_signature_input(
+            nonce_created_at, nonce_value, request.method, request.path, request.data)
         return self._verify(request, signature_input_b64, request.headers[self._signature_header])
 
     @staticmethod
-    def _create_signature_input(nonce_created_at, nonce_value, request):
-        signature_input = (F"{request.method}{request.path}{nonce_value}"
-                           F"{nonce_created_at}{request.data.decode()}")
+    def _create_signature_input(nonce_created_at, nonce_value, method, path, data):
+        signature_input = (F"{method}{path}{nonce_value}"
+                           F"{nonce_created_at}{data.decode()}")
         signature_input_b64 = base64.standard_b64encode(signature_input.encode())
         return signature_input_b64
 
     def _add_signature(self, response, request):
         nonce = uuid.uuid4()
         nonce_created_at = datetime.now(timezone.utc).isoformat()
-        signature_input_b64 = self._create_signature_input(nonce_created_at, nonce, request)
+        signature_input_b64 = self._create_signature_input(
+            nonce_created_at, nonce, request.method, request.path, response.data)
         response.headers[self._signature_header] = self._generate_signature(signature_input_b64)
         response.headers[self._nonce_header] = nonce
         response.headers[self._nonce_created_at_header] = nonce_created_at
@@ -243,4 +245,8 @@ class RSA:  # pylint: disable=too-many-instance-attributes
     @staticmethod
     def _read_public_key(filename):
         with open(filename, "rb") as key_file:
-            return serialization.load_pem_public_key(key_file.read())
+            return RSA._load_public_key(key_file.read())
+
+    @staticmethod
+    def _load_public_key(public_key):
+        return serialization.load_pem_public_key(public_key)
