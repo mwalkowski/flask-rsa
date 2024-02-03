@@ -1,0 +1,25 @@
+[project]
+name = "Flask-RSA"
+version = "0.0.1"
+authors = [
+  { name="Michal Walkowski", email="michal.walkowski@pwr.edu.pl" },
+]
+description = "This Flask extension provides server-side implementation of RSA-based request signature validation."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    'flask',
+    'requests',
+    'pycryptodome==3.19.1',
+]
+keywords=['Flask', 'RSA', 'REST', 'Views']
+
+[project.urls]
+Homepage = "https://github.com/mwalkowski/flask-rsa"
+Issues = "https://github.com/mwalkowski/flask-rsa/issues"
