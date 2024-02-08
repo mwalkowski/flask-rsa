@@ -113,7 +113,7 @@ def is_signature_correct(response, path, method, server_public_key):
 
     try:
         server_public_key.verify(
-            response.headers[SIGNATURE_HEADER],
+            base64.standard_b64decode(response.headers[SIGNATURE_HEADER]),
             signature_input_b64,
             padding.PSS(
                 mgf=padding.MGF1(hashes.SHA256()),
