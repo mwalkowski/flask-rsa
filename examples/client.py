@@ -64,15 +64,15 @@ def generate_signature(private_key, signature_input_b64):
     ).decode('utf-8')
 
 
-def send_signed_request(private_key, token):
+def send_signed_request(path, private_key, token, request_body):
     headers = {'x-access-token': token}
 
-    request_body = json.dumps({'TEST': 'Test'})
-    headers = add_signature(headers, 'POST', '/signed-body',
+    headers = add_signature(headers, 'POST', path,
                             request_body, private_key)
 
+    headers['Content-Type'] = 'application/json'
     return requests.post(
-        F'{SERVER_ADDRESS}/signed-body',
+        F'{SERVER_ADDRESS}/{path}',
         headers=headers,
         data=request_body
     )
@@ -126,6 +126,28 @@ def is_signature_correct(response, path, method, server_public_key):
     return True
 
 
+def encrypt(body, server_public_key):
+    return base64.standard_b64encode(server_public_key.encrypt(
+        base64.standard_b64encode(body.encode('utf-8')),
+        padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None
+        )
+    )).decode()
+
+
+def decrypt(data, private_key):
+    return base64.standard_b64decode(private_key.decrypt(
+        base64.standard_b64decode(data),
+        padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None
+        )
+    ))
+
+
 if __name__ == "__main__":
     username = str(uuid.uuid4())
     print(F'Created user name: {username}')
@@ -146,9 +168,27 @@ if __name__ == "__main__":
 
     print(F'Received token: {token}')
     print('Sending signed request')
-    response = send_signed_request(private_key, token)
+    response = send_signed_request('/signed-body', private_key, token, json.dumps({'TEST': 'Test'}))
 
     print(F'Response status code: {response.status_code}')
     print(F'Response body: {response.json()}')
     is_correct = is_signature_correct(response, "POST", "/signed-body", server_public_key)
     print(F'Is server signature correct?: {is_correct}')
+
+    print('Sending encrypted and singed request')
+    encrypted_body = encrypt(json.dumps({"content": "hello-world"}), server_public_key)
+    response = send_signed_request('/encrypted-singed-request', private_key, token, json.dumps({"encrypted_payload": encrypted_body}))
+    print(F'Response status code: {response.status_code}')
+    print(F'Received response: {response.json()}')
+    is_correct = is_signature_correct(response, "POST", '/encrypted-singed-request', server_public_key)
+    print(F'Is server signature correct?: {is_correct}')
+
+    print('Sending encrypted and singed request')
+    encrypted_body = encrypt(json.dumps({"content": "hello-world"}), server_public_key)
+    response = send_signed_request('/encrypted-request-response-signed', private_key, token, json.dumps({"encrypted_payload": encrypted_body}))
+    print(F'Response status code: {response.status_code}')
+    print(F'Received encrypted response: {response.json()}')
+    is_correct = is_signature_correct(response, "POST", '/encrypted-request-response-signed', server_public_key)
+    print(F'Is server signature correct?: {is_correct}')
+    encrypted_payload = response.json()["encrypted_payload"]
+    print(F'Decrypted response: {json.loads(decrypt(encrypted_payload, private_key))}')
