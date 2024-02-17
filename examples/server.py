@@ -105,7 +105,7 @@ def encrypted_signed_body(request_body, current_user):
     return jsonify({'secret-accepted': F"response-{request_body['content']}"})
 
 
-@app.route('/encrypted-request-response-signed', methods=['POST'])
+@app.route('/encrypted-request-response-and-signed', methods=['POST'])
 @token_required
 @rsa.signature_required()
 @rsa.encrypted_request()

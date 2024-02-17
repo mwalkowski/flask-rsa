@@ -1,11 +1,11 @@
 [![security: bandit](https://img.shields.io/badge/security-bandit-yellow.svg)](https://github.com/PyCQA/bandit)![example workflow](https://github.com/mwalkowski/flask-rsa/actions/workflows/python-package.yml/badge.svg)![PyPI - Downloads](https://img.shields.io/pypi/dm/flask-rsa)
 
 
-# Flask RSA Signature Validation
-This Flask extension provides server-side implementation of RSA-based request signature validation. It enhances the security of web applications by ensuring the integrity and authenticity of incoming requests. The extension allows developers to easily integrate RSA signature validation into their Flask applications.
+# Flask RSA
+This Flask extension provides server-side implementation of RSA-based request signature validation, encryption, and decryption. It enhances the security of web applications by ensuring the integrity, authenticity, and confidentiality of incoming requests and outgoing responses.
 
 ## Installation
-Install the Flask RSA Signature Validation extension using pip:
+Install the Flask RSA extension using pip:
 
 ```bash
 pip install flask-rsa
@@ -14,7 +14,7 @@ pip install flask-rsa
 ## Usage
 To use this extension in your Flask application, follow these steps:
 
-1. Import the RSA class from the flask_rsa_signature module.
+1. Import the RSA class from the flask_rsa module.
 
 ```python
 from flask_rsa import RSA
@@ -28,7 +28,7 @@ app = Flask(__name__)
 rsa = RSA(app)
 ```
 
-3.Decorate the route(s) that require RSA signature validation using the @rsa.signature_required() decorator.
+3.Decorate the route(s) that require RSA signature validation using the `@rsa.signature_required()` decorator.
 ```python
 @app.route('/secure-endpoint', methods=['POST'])
 @rsa.signature_required()
@@ -37,7 +37,36 @@ def secure_endpoint():
     return jsonify({"message": "Request successfully validated and processed"})
 ```
 
-4.(Optional) Customize the extension by adjusting the configuration parameters.
+4.(Optional) Decorate the route(s) that require RSA request body decryption using the `@rsa.encrypted_request()` decorator:
+```python
+@app.route('/encrypted-endpoint', methods=['POST'])
+@rsa.encrypted_request()
+def encrypted_request_endpoint(request_body):
+    # Your encrypted route logic here
+    return jsonify({"message": "Request successfully decrypted and processed"})
+```
+
+5.(Optional) Decorate the route(s) that require RSA response body encryption using the `@rsa.encrypted_response()` decorator:
+```python
+@app.route('/encrypted-endpoint', methods=['POST'])
+@rsa.encrypted_response()
+def encrypted_endpoint():
+    # Your encrypted route logic here
+    return jsonify({"message": "Response successfully encrypted and sent"})
+```
+
+6.(Optional) Decorate the route(s) that require RSA request body decryption, response body encryption, and signature validation using the flowing example:
+```python
+@app.route('/encrypted-endpoint', methods=['POST'])
+@rsa.signature_required()
+@rsa.encrypted_request()
+@rsa.encrypted_response()
+def encrypted_endpoint():
+    # Your encrypted route logic here
+    return jsonify({"message": "Response successfully encrypted and sent"})
+```
+
+7.(Optional) Customize the extension by adjusting the configuration parameters.
 ```python
 app.config['RSA_SIGNATURE_HEADER'] = 'X-Signature'
 app.config['RSA_NONCE_HEADER'] = 'X-Nonce-Value'
@@ -46,14 +75,17 @@ app.config['RSA_NONCE_HEADER'] = 'X-Nonce-Value'
 5. Run your Flask application as usual.
 
 ## Configuration Parameters
-* `RSA_SIGNATURE_HEADER`: Header name for the RSA signature (default: 'X-Signature').
-* `RSA_NONCE_HEADER`: Header name for the nonce value (default: 'X-Nonce-Value').
-* `RSA_NONCE_CREATED_AT_HEADER`: Header name for the nonce creation timestamp (default: 'X-Nonce-Created-At').
+* `RSA_SIGNATURE_HEADER`: Header name for the RSA signature (default: `X-Signature`).
+* `RSA_NONCE_HEADER`: Header name for the nonce value (default: `X-Nonce-Value`).
+* `RSA_NONCE_CREATED_AT_HEADER`: Header name for the nonce creation timestamp (default: `X-Nonce-Created-At`).
 * `RSA_NONCE_QUEUE_SIZE_LIMIT`: Limit on the number of nonces stored in the queue (default: 10).
 * `RSA_TIME_DIFF_TOLERANCE_IN_SECONDS`: Time difference tolerance for nonce validation (default: 10.0 seconds).
-* `RSA_PUBLIC_KEY_URL`: Endpoint URL for exposing the server's public key (default: '/public-key').
+* `RSA_PUBLIC_KEY_URL`: Endpoint URL for exposing the server's public key (default: `/public-key`).
 * `RSA_PRIVATE_KEY_PATH` and `RSA_PUBLIC_KEY_PATH`: Paths to the private and public keys, respectively. If not provided, new keys will be generated.
 * `RSA_ERROR_CODE`: HTTP status code to return in case of validation failure (default: 403).
+* `RSA_PAYLOAD_PLACEHOLDER`: Placeholder for encrypted payload in request/response (default: `PAYLOAD_PLACEHOLDER`).
+* `RSA_ENCRYPTED_PAYLOAD_KEY`: Key name for encrypted payload in request/response (default: `encrypted_payload`).
+* `RSA_ENCRYPTED_PAYLOAD_STRUCTURE`: Structure for encrypted payload in request/response (default: ```{'encrypted_payload': 'PAYLOAD_PLACEHOLDER'}```).
 
 ## Example
 
@@ -122,6 +154,34 @@ def verify(server_public_key, signature_input_b64, received_signature):
     except InvalidSignature:
         return False
     return True
+```
+
+### Encryption
+To encrypt request body, use the encrypt function:
+```python
+def encrypt(body, server_public_key):
+    return base64.standard_b64encode(server_public_key.encrypt(
+        base64.standard_b64encode(body.encode('utf-8')),
+        padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None
+        )
+    )).decode()
+```
+
+### Decryption
+To decrypt response body, use the decrypt function:
+```python
+def decrypt(data, private_key):
+    return base64.standard_b64decode(private_key.decrypt(
+        base64.standard_b64decode(data),
+        padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None
+        )
+    ))
 ```
 More code can be found in the [example/client.py](./examples/client.py) file.
 
