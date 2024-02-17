@@ -1,3 +1,5 @@
+import copy
+import json
 import os
 import base64
 import queue
@@ -24,6 +26,8 @@ _NONCE_HEADER = 'X-Nonce-Value'
 _NONCE_QUEUE_SIZE_LIMIT = 10
 _NONCE_CREATED_AT_HEADER = 'X-Nonce-Created-At'
 _TIME_DIFF_TOLERANCE_IN_SECONDS = 10.0
+_PAYLOAD_PLACEHOLDER = 'PAYLOAD_PLACEHOLDER'
+_ENCRYPTED_PAYLOAD_KEY = 'encrypted_payload'
 _PUBLIC_KEY_URL = '/public-key'
 
 _UUID_PATTERN = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-5][0-9a-f]{3}-[089ab][0-9a-f]{3}-[0-9a-f]{12}$"
@@ -48,6 +52,14 @@ class RSA:  # pylint: disable=too-many-instance-attributes
             'RSA_NONCE_QUEUE_SIZE_LIMIT', _NONCE_QUEUE_SIZE_LIMIT)
         self._time_diff_tolerance_in_seconds = app.config.get(
             'RSA_TIME_DIFF_TOLERANCE_IN_SECONDS', _TIME_DIFF_TOLERANCE_IN_SECONDS)
+        self._payload_placeholder = app.config.get(
+            'RSA_PAYLOAD_PLACEHOLDER', _PAYLOAD_PLACEHOLDER)
+        self._encrypted_payload_key = app.config.get(
+            'RSA_ENCRYPTED_PAYLOAD_KEY', _ENCRYPTED_PAYLOAD_KEY)
+        self._encrypted_payload_structure = app.config.get(
+            'RSA_ENCRYPTED_PAYLOAD_STRUCTURE',
+            {self._encrypted_payload_key: self._payload_placeholder}
+        )
         self._error_code = app.config.get(
             'RSA_ERROR_CODE', status_codes.codes.forbidden)  # pylint: disable=no-member
 
@@ -144,6 +156,55 @@ class RSA:  # pylint: disable=too-many-instance-attributes
 
             return decorator
         return _signature_required
+
+    def encrypted_request(self):
+        def _encrypted_request(f):
+            @wraps(f)
+            def decorator(*args, **kwargs):
+                msg = request.get_json()
+                if self._encrypted_payload_key in msg:
+
+                    try:
+                        plaintext = self._server_private_key.decrypt(
+                            base64.standard_b64decode(msg[self._encrypted_payload_key]),
+                            padding.OAEP(
+                                mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                                algorithm=hashes.SHA256(),
+                                label=None
+                            )
+                        )
+                        request_body = json.loads(base64.standard_b64decode(plaintext))
+                        return f(request_body, *args, **kwargs)
+                    except Exception as e:  # pylint: disable=broad-exception-caught
+                        self._logger.error('Decryption problem %s', e)
+                        return self._make_response('Decryption problem')
+                else:
+                    return self._make_response(f'Missing {self._encrypted_payload_key} param')
+
+            return decorator
+
+        return _encrypted_request
+
+    def encrypted_response(self):
+        def _encrypted_response(f):
+            @wraps(f)
+            def decorator(*args, **kwargs):
+                response = f(*args, **kwargs)
+                ciphertext = self._get_user_public_key(request).encrypt(
+                    base64.standard_b64encode(response.data),
+                    padding.OAEP(
+                        mgf=padding.MGF1(algorithm=hashes.SHA256()),
+                        algorithm=hashes.SHA256(),
+                        label=None
+                    )
+                )
+                encrypted_msg = copy.deepcopy(self._encrypted_payload_structure)
+                encrypted_msg[self._encrypted_payload_key] = base64.standard_b64encode(
+                    ciphertext).decode()
+                response.data = json.dumps(encrypted_msg)
+                return response
+            return decorator
+        return _encrypted_response
 
     def get_server_public_key(self):
         return jsonify({"public_key": self._server_public_key.public_bytes(
