@@ -1,6 +1,6 @@
 [project]
 name = "Flask-RSA"
-version = "0.1.0"
+version = "0.2.0"
 authors = [
   { name="Michal Walkowski", email="michal.walkowski@pwr.edu.pl" },
 ]

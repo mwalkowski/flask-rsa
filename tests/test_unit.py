@@ -221,8 +221,6 @@ def test_config_rsa_keys_nok(flask_mock):
     flask_mock.config['RSA_PRIVATE_KEY_PATH'] = None
     flask_mock.config['RSA_PUBLIC_KEY_PATH'] = TEST_PUBLIC_KEY_PATH_CONF
 
-
-
     with pytest.raises(TypeError):
         TestRSA(flask_mock)
 

@@ -39,14 +39,14 @@ def read_public_key(filename):
         return serialization.load_pem_public_key(key_file.read())
 
 
-def create_signature_input_b64(method, nonce, nonce_created_at, request_data):
-    signature_input = "{}{}{}{}{}".format(method, '/signed-body', nonce, nonce_created_at,
+def create_signature_input_b64(method, path, nonce, nonce_created_at, request_data):
+    signature_input = "{}{}{}{}{}".format(method, path, nonce, nonce_created_at,
                                           request_data)
     return base64.standard_b64encode(signature_input.encode())
 
 
-def create_signature(method, nonce, nonce_created_at, request_data):
-    signature_input_b64 = create_signature_input_b64(method, nonce, nonce_created_at, request_data)
+def create_signature(method, path, nonce, nonce_created_at, request_data):
+    signature_input_b64 = create_signature_input_b64(method, path, nonce, nonce_created_at, request_data)
     signature = read_private_key(PRIVATE_KEY).sign(
         signature_input_b64,
         padding.PSS(
@@ -73,6 +73,28 @@ def verify(signature_input_b64, received_signature):
     return True
 
 
+def encrypt(body):
+    return base64.standard_b64encode(read_public_key(PUBLIC_KEY).encrypt(
+        base64.standard_b64encode(body.encode('utf-8')),
+        padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None
+        )
+    )).decode()
+
+
+def decrypt(data):
+    return base64.standard_b64decode(read_private_key(PRIVATE_KEY).decrypt(
+        base64.standard_b64decode(data),
+        padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None
+        )
+    ))
+
+
 @pytest.fixture()
 def app():
     app = Flask(__name__)
@@ -85,6 +107,23 @@ def app():
     @rsa.signature_required()
     def signed_body():
         return jsonify({"msg": "Ok!"})
+
+    @app.route("/encrypted-request", methods=["POST", "PATCH", "PUT"])
+    @rsa.encrypted_request()
+    def encrypted_request(request_body):
+        return jsonify({"msg": F"{request_body['name']}"})
+
+    @app.route("/encrypted-response", methods=["GET"])
+    @rsa.encrypted_response()
+    def encrypted_response():
+        return jsonify({"msg": "OK-ENCRYPTED"})
+
+    @app.route("/encrypted-signed", methods=["POST", "PATCH", "PUT"])
+    @rsa.signature_required()
+    @rsa.encrypted_request()
+    @rsa.encrypted_response()
+    def encrypted_signed(request_body):
+        return jsonify({"msg": F"{request_body['name']}"})
 
     app.config.update({
         "TESTING": True,
@@ -202,7 +241,8 @@ def test_signature_ok(method, client):
     headers = {
         NONCE_HEADER: nonce,
         NONCE_CREATED_AT_HEADER: nonce_created_at,
-        SIGNATURE_HEADER: create_signature(method, nonce, nonce_created_at, request_data)
+        SIGNATURE_HEADER: create_signature(method, "/signed-body",
+                                           nonce, nonce_created_at, request_data)
     }
     response = client.open(method=method, path="/signed-body",
                            headers=headers, json=json.loads(request_data))
@@ -222,7 +262,7 @@ def test_signature_ok(method, client):
     assert SIGNATURE_HEADER in response.headers
 
     signature_input_b64 = create_signature_input_b64(
-        method, response.headers[NONCE_HEADER],
+        method, "/signed-body", response.headers[NONCE_HEADER],
         response.headers[NONCE_CREATED_AT_HEADER],
         response.text)
 
@@ -235,3 +275,67 @@ def test_get_public_key_endpoint(client):
     assert response.status_code == 200
     with open(PUBLIC_KEY, 'r') as f:
         assert response.json == {'public_key': f.read()}
+
+
+@pytest.mark.parametrize("method", ["POST", "PATCH", "PUT"])
+def test_missing_encrypted_payload_key(method, client):
+    response = client.open(method=method, path="/encrypted-request",
+                           json={"name": "MW"})
+
+    assert response.status_code == 403
+    assert response.json == {'error': "Missing encrypted_payload param"}
+
+
+@pytest.mark.parametrize("method", ["POST", "PATCH", "PUT"])
+def test_invalid_payload(method, client):
+    response = client.open(method=method, path="/encrypted-request",
+                           json={"encrypted_payload": "MW"})
+
+    assert response.status_code == 403
+    assert response.json == {'error': "Decryption problem"}
+
+
+@pytest.mark.parametrize("method", ["POST", "PATCH", "PUT"])
+def test_encrypted_request(method, client):
+    msg = {'encrypted_payload': encrypt(json.dumps({"name": "MW"}))}
+
+    response = client.open(method=method, path="/encrypted-request", json=msg)
+
+    assert response.status_code == 200
+    assert response.json == {"msg": "MW"}
+
+
+def test_encrypted_response(client):
+    response = client.get("/encrypted-response")
+
+    assert response.status_code == 200
+    assert 'encrypted_payload' in response.json
+    msg = decrypt(response.json['encrypted_payload'])
+    assert json.loads(msg) == {"msg": "OK-ENCRYPTED"}
+
+
+def test_encrypted_signed(client):
+    nonce = uuid.uuid4()
+    nonce_created_at = datetime.now(timezone.utc).isoformat()
+    msg = {'encrypted_payload': encrypt(json.dumps({"name": "MW-Encrypted"}))}
+
+    headers = {
+        NONCE_HEADER: nonce,
+        NONCE_CREATED_AT_HEADER: nonce_created_at,
+        SIGNATURE_HEADER:
+            create_signature('POST', "/encrypted-signed",
+                             nonce, nonce_created_at, json.dumps(msg))
+    }
+
+    response = client.post(path="/encrypted-signed", headers=headers, json=msg)
+
+    assert response.status_code == 200
+    msg = decrypt(response.json['encrypted_payload'])
+    assert json.loads(msg) == {"msg": "MW-Encrypted"}
+
+    signature_input_b64 = create_signature_input_b64(
+        "POST", "/encrypted-signed", response.headers[NONCE_HEADER],
+        response.headers[NONCE_CREATED_AT_HEADER],
+        response.text)
+
+    assert verify(signature_input_b64, response.headers[SIGNATURE_HEADER])

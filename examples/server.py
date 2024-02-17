@@ -97,6 +97,23 @@ def signed_body(current_user):
     return jsonify({'signed': 'Ok'})
 
 
+@app.route('/encrypted-singed-request', methods=['POST'])
+@token_required
+@rsa.signature_required()
+@rsa.encrypted_request()
+def encrypted_signed_body(request_body, current_user):
+    return jsonify({'secret-accepted': F"response-{request_body['content']}"})
+
+
+@app.route('/encrypted-request-response-and-signed', methods=['POST'])
+@token_required
+@rsa.signature_required()
+@rsa.encrypted_request()
+@rsa.encrypted_response()
+def encrypted_all_signed(request_body, current_user):
+    return jsonify({'secret': F"encrypted-response-{request_body['content']}"})
+
+
 if __name__ == "__main__":
     if not os.path.exists('db.sqlite'):
         with app.app_context():
