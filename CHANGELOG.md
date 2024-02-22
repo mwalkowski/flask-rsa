@@ -1,3 +1,7 @@
+0.2.1
+--------
+- Bump cryptography from 42.0.2 to 42.0.4
+
 0.2.0
 --------
 - Encrypted body request
