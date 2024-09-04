@@ -1,3 +1,7 @@
+0.2.2
+--------
+- Bump cryptography from 42.0.4 to 43.0.1
+
 0.2.1
 --------
 - Bump cryptography from 42.0.2 to 42.0.4
